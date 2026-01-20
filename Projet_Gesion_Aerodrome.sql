@@ -1,0 +1,305 @@
+-- *********************************************
+-- * Standard SQL generation                   
+-- *--------------------------------------------
+-- * DB-MAIN version: 11.0.2              
+-- * Generator date: Sep 14 2021              
+-- * Generation date: Tue Jan 20 11:22:03 2026 
+-- * LUN file: C:\Users\zerho\OneDrive\Bureau\IPSA\Bachelor 2\S4\Projet Bases de données\Gestion_Aerodrome\Projet_Gesiont_Aerodrome.lun 
+-- * Schema: Gestion Aerodrome/SQL 
+-- ********************************************* 
+
+
+-- Database Section
+-- ________________ 
+
+create database Gestion Aerodrome;
+
+
+-- DBSpace Section
+-- _______________
+
+
+-- Tables Section
+-- _____________ 
+
+create table AgentExploitation (
+     id_agent numeric(100) not null,
+     Nom varchar(30) not null,
+     Prenom varchar(30) not null,
+     Adresse varchar(255) not null,
+     Telephone varchar(13) not null,
+     identifiant varchar(255) not null,
+     constraint ID_AgentExploitation_ID primary key (id_agent));
+
+create table Avion (
+     id_avion numeric(100) not null,
+     TypeAvion varchar(20) not null,
+     Capacite_carburant numeric(3) not null,
+     id_pilote numeric(100) not null,
+     constraint ID_Avion_ID primary key (id_avion));
+
+create table Carburant (
+     Type_carburant varchar(30) not null,
+     prix_litre float(10) not null,
+     Quantite_max numeric(10) not null,
+     constraint ID_Carburant_ID primary key (Type_carburant));
+
+create table Compte (
+     identifiant varchar(255) not null,
+     Mot_de_passe varchar(255) not null,
+     constraint ID_Compte_ID primary key (identifiant));
+
+create table Emplacement (
+     num_emplacement numeric(100) not null,
+     id_reservation numeric(100) not null,
+     id_hangar numeric(100) not null,
+     constraint ID_Emplacement_ID primary key (num_emplacement),
+     constraint FKLouer_ID unique (id_reservation));
+
+create table Facture (
+     id_facture numeric(100) not null,
+     Recette_jour numeric(100) not null,
+     Recette_mois numeric(100) not null,
+     Recette_annee numeric(100) not null,
+     Prix_Total numeric(100) not null,
+     id_agent numeric(100) not null,
+     constraint ID_Facture_ID primary key (id_facture));
+
+create table Gestionnaire_Aerodrome (
+     id_gestionnaire numeric(100) not null,
+     Nom varchar(30) not null,
+     Prenom varchar(30) not null,
+     Adresse varchar(255) not null,
+     Telephone varchar(13) not null,
+     identifiant varchar(255) not null,
+     constraint ID_Gestionnaire_Aerodrome_ID primary key (id_gestionnaire));
+
+create table Hangar (
+     id_hangar numeric(100) not null,
+     Taille varchar(10) not null,
+     Prix_jour numeric(10) not null,
+     Prix_semaine numeric(10) not null,
+     Prix_mois numeric(10) not null,
+     constraint ID_Hangar_ID primary key (id_hangar));
+
+create table Message (
+     id_agent numeric(100) not null,
+     id_pilote numeric(100) not null,
+     Texte varchar(255) not null,
+     constraint ID_Message_ID primary key (id_agent, id_pilote));
+
+create table Parking (
+     id_parking numeric(100) not null,
+     Taille varchar(10) not null,
+     Prix char(1) not null,
+     constraint ID_Parking_ID primary key (id_parking));
+
+create table Pilote (
+     id_pilote numeric(100) not null,
+     Nom varchar(30) not null,
+     Prenom varchar(30) not null,
+     Adresse varchar(255) not null,
+     Telephone varchar(13) not null,
+     identifiant varchar(255) not null,
+     constraint ID_Pilote_ID primary key (id_pilote));
+
+create table Remplir (
+     id_reservation numeric(100) not null,
+     Quantite numeric(10) not null,
+     Type_carburant varchar(30) not null,
+     constraint FKRem_Res_ID primary key (id_reservation));
+
+create table Reservation (
+     id_reservation numeric(100) not null,
+     Etat varchar(30) not null,
+     Date varchar(10) not null,
+     Disponibilite varchar(10) not null,
+     id_vol numeric(100),
+     id_avion numeric(100) not null,
+     id_parking numeric(100),
+     id_facture numeric(100) not null,
+     constraint ID_Reservation_ID primary key (id_reservation));
+
+create table Vol (
+     id_vol numeric(100) not null,
+     Heure_decollage varchar(10) not null,
+     Heure_atterissage varchar(10) not null,
+     constraint ID_Vol_ID primary key (id_vol));
+
+
+-- Constraints Section
+-- ___________________ 
+
+alter table AgentExploitation add constraint ID_AgentExploitation_CHK
+     check(exists(select * from Facture
+                  where Facture.id_agent = id_agent)); 
+
+alter table AgentExploitation add constraint FKAuthentifier_Agent_FK
+     foreign key (identifiant)
+     references Compte;
+
+alter table Avion add constraint ID_Avion_CHK
+     check(exists(select * from Reservation
+                  where Reservation.id_avion = id_avion)); 
+
+alter table Avion add constraint FKPosseder_FK
+     foreign key (id_pilote)
+     references Pilote;
+
+alter table Carburant add constraint ID_Carburant_CHK
+     check(exists(select * from Remplir
+                  where Remplir.Type_carburant = Type_carburant)); 
+
+alter table Emplacement add constraint FKSituer_FK
+     foreign key (id_hangar)
+     references Hangar;
+
+alter table Emplacement add constraint FKLouer_FK
+     foreign key (id_reservation)
+     references Reservation;
+
+alter table Facture add constraint ID_Facture_CHK
+     check(exists(select * from Reservation
+                  where Reservation.id_facture = id_facture)); 
+
+alter table Facture add constraint FKCreer_FK
+     foreign key (id_agent)
+     references AgentExploitation;
+
+alter table Gestionnaire_Aerodrome add constraint FKAuthentifier_Gestionnaire_FK
+     foreign key (identifiant)
+     references Compte;
+
+alter table Hangar add constraint ID_Hangar_CHK
+     check(exists(select * from Emplacement
+                  where Emplacement.id_hangar = id_hangar)); 
+
+alter table Message add constraint FKMes_Pil_FK
+     foreign key (id_pilote)
+     references Pilote;
+
+alter table Message add constraint FKMes_Age
+     foreign key (id_agent)
+     references AgentExploitation;
+
+alter table Parking add constraint ID_Parking_CHK
+     check(exists(select * from Reservation
+                  where Reservation.id_parking = id_parking)); 
+
+alter table Pilote add constraint ID_Pilote_CHK
+     check(exists(select * from Avion
+                  where Avion.id_pilote = id_pilote)); 
+
+alter table Pilote add constraint FKAuthentifier_Pilote_FK
+     foreign key (identifiant)
+     references Compte;
+
+alter table Remplir add constraint FKRem_Res_FK
+     foreign key (id_reservation)
+     references Reservation;
+
+alter table Remplir add constraint FKRem_Car_FK
+     foreign key (Type_carburant)
+     references Carburant;
+
+alter table Reservation add constraint FKReserver_FK
+     foreign key (id_vol)
+     references Vol;
+
+alter table Reservation add constraint FKConcerner_FK
+     foreign key (id_avion)
+     references Avion;
+
+alter table Reservation add constraint FKAllouer_FK
+     foreign key (id_parking)
+     references Parking;
+
+alter table Reservation add constraint FKAjouter_FK
+     foreign key (id_facture)
+     references Facture;
+
+
+-- Index Section
+-- _____________ 
+
+create unique index ID_AgentExploitation_IND
+     on AgentExploitation (id_agent);
+
+create index FKAuthentifier_Agent_IND
+     on AgentExploitation (identifiant);
+
+create unique index ID_Avion_IND
+     on Avion (id_avion);
+
+create index FKPosseder_IND
+     on Avion (id_pilote);
+
+create unique index ID_Carburant_IND
+     on Carburant (Type_carburant);
+
+create unique index ID_Compte_IND
+     on Compte (identifiant);
+
+create unique index ID_Emplacement_IND
+     on Emplacement (num_emplacement);
+
+create index FKSituer_IND
+     on Emplacement (id_hangar);
+
+create unique index FKLouer_IND
+     on Emplacement (id_reservation);
+
+create unique index ID_Facture_IND
+     on Facture (id_facture);
+
+create index FKCreer_IND
+     on Facture (id_agent);
+
+create unique index ID_Gestionnaire_Aerodrome_IND
+     on Gestionnaire_Aerodrome (id_gestionnaire);
+
+create index FKAuthentifier_Gestionnaire_IND
+     on Gestionnaire_Aerodrome (identifiant);
+
+create unique index ID_Hangar_IND
+     on Hangar (id_hangar);
+
+create unique index ID_Message_IND
+     on Message (id_agent, id_pilote);
+
+create index FKMes_Pil_IND
+     on Message (id_pilote);
+
+create unique index ID_Parking_IND
+     on Parking (id_parking);
+
+create unique index ID_Pilote_IND
+     on Pilote (id_pilote);
+
+create index FKAuthentifier_Pilote_IND
+     on Pilote (identifiant);
+
+create unique index FKRem_Res_IND
+     on Remplir (id_reservation);
+
+create index FKRem_Car_IND
+     on Remplir (Type_carburant);
+
+create unique index ID_Reservation_IND
+     on Reservation (id_reservation);
+
+create index FKReserver_IND
+     on Reservation (id_vol);
+
+create index FKConcerner_IND
+     on Reservation (id_avion);
+
+create index FKAllouer_IND
+     on Reservation (id_parking);
+
+create index FKAjouter_IND
+     on Reservation (id_facture);
+
+create unique index ID_Vol_IND
+     on Vol (id_vol);
+
