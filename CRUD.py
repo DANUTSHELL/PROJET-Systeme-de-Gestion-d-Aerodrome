@@ -11,15 +11,12 @@ def parcours_listes(L1,L2):
             attributs = attributs + ", "
     return attributs
 
-def parcours_valeurs(L):
+def parcours_valeurs_interrogation(L):
     nouveau = ""
     taille = len(L)
 
     for i in range(taille):
-        if type(L[i]) == str:
-            nouveau = nouveau + f"'{L[i]}'"
-        else:
-            nouveau = nouveau + f"{L[i]}"
+        nouveau = nouveau + f"?"
 
         if i< taille - 1:
             nouveau = nouveau + ", "
@@ -38,8 +35,8 @@ class RequetesSQL :
     
     def Insert(self, nomTable, listeValeurs):
         self.cur.execute(f"""INSERT INTO {nomTable} VALUES(
-                         {parcours_valeurs(listeValeurs)}
-                         )""")
+                         {parcours_valeurs_interrogation(listeValeurs)}
+                         )""", listeValeurs)
         self.con.commit()
 
     def CloseDB(self):
