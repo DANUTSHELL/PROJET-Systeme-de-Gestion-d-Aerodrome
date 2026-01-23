@@ -1,28 +1,5 @@
 import sqlite3
 
-#   Fonctions pour parcourir les listes et les transformer en des phrases
-def parcours_listes(L1,L2):
-    attributs = ""
-    taille = len(L1)
-
-    for i in range(taille):
-        attributs = attributs + f"{L1[i]} {L2[i]}"
-
-        if i< taille - 1:
-            attributs = attributs + ", "
-    return attributs
-
-def parcours_valeurs_interrogation(L):
-    nouveau = ""
-    taille = len(L)
-
-    for i in range(taille):
-        nouveau = nouveau + f"?"
-
-        if i< taille - 1:
-            nouveau = nouveau + ", "
-    return nouveau
-
 #   Class RequeteSQL qui regroupe toutes les requêtes SQL
 
 class RequeteSQL :
@@ -31,14 +8,16 @@ class RequeteSQL :
         self.cur = self.con.cursor()
 
     def CreateTable(self, nomTable, listeAttributs, typeAttributs, PrimaryKey):
+        attributs_str = ", ".join([f"{attributs} {types}" for attributs, types in zip(listeAttributs, typeAttributs)])
         self.cur.execute(f"""CREATE TABLE IF NOT EXISTS {nomTable}(
-                         {parcours_listes(listeAttributs, typeAttributs)},PRIMARY KEY ({PrimaryKey})
+                         {attributs_str},PRIMARY KEY ({PrimaryKey})
                          )""")
         self.con.commit()
     
     def Insert(self, nomTable, listeValeurs):
+        Liste_interrogations = ", ".join(["?" for _ in listeValeurs])
         self.cur.execute(f"""INSERT INTO {nomTable} VALUES(
-                         {parcours_valeurs_interrogation(listeValeurs)}
+                         {Liste_interrogations}
                          )""", listeValeurs)
         self.con.commit()
 
@@ -52,9 +31,12 @@ class RequeteSQL :
                          """)
         self.con.commit()
 
-    def Select(self, colonnes, nomTable, conditions):
-        self.cur.execute(f"""SELECT {colonnes} FROM {nomTable} WHERE {conditions}
-                         """)
+    def Select(self, colonnes, nomTable, conditions = None):
+        if conditions == None:
+            self.cur.execute(f"""SELECT * FROM {nomTable}""")
+        else:
+            self.cur.execute(f"""SELECT {colonnes} FROM {nomTable} WHERE {conditions}
+                             """)
         resultats = self.cur.fetchall()
         return resultats
 
