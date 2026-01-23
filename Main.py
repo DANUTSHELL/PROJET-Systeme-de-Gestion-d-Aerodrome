@@ -1,1 +1,3 @@
-import sqlite3
+from CRUD import RequeteSQL
+
+db = RequeteSQL("Aerodrome.db")
