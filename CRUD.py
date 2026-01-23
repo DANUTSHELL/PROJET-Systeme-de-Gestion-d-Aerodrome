@@ -55,7 +55,8 @@ class RequeteSQL :
     def Select(self, colonnes, nomTable, conditions):
         self.cur.execute(f"""SELECT {colonnes} FROM {nomTable} WHERE {conditions}
                          """)
-        self.con.commit()
+        resultats = self.cur.fetchall()
+        return resultats
 
     def CloseDB(self):
         self.con.close()
