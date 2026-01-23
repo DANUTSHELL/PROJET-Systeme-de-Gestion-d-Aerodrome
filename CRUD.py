@@ -32,7 +32,7 @@ class RequeteSQL :
         self.con.commit()
 
     def Select(self, colonnes, nomTable, conditions = None):
-        if conditions == None:
+        if conditions is None:
             self.cur.execute(f"""SELECT * FROM {nomTable}""")
         else:
             self.cur.execute(f"""SELECT {colonnes} FROM {nomTable} WHERE {conditions}
