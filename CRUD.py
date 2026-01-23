@@ -1,5 +1,6 @@
 import sqlite3
 
+#   Fonctions pour parcourir les listes et les transformer en des phrases
 def parcours_listes(L1,L2):
     attributs = ""
     taille = len(L1)
@@ -22,7 +23,9 @@ def parcours_valeurs_interrogation(L):
             nouveau = nouveau + ", "
     return nouveau
 
-class RequetesSQL :
+#   Class RequeteSQL qui regroupe toutes les requêtes SQL
+
+class RequeteSQL :
     def __init__(self, baseDB):
         self.con = sqlite3.connect(baseDB)
         self.cur = self.con.cursor()
@@ -37,6 +40,21 @@ class RequetesSQL :
         self.cur.execute(f"""INSERT INTO {nomTable} VALUES(
                          {parcours_valeurs_interrogation(listeValeurs)}
                          )""", listeValeurs)
+        self.con.commit()
+
+    def Update(self, nomTable, nouvelle_valeur, conditions):
+        self.cur.execute(f"""UPDATE {nomTable} SET {nouvelle_valeur} WHERE {conditions}
+                         """)
+        self.con.commit()
+    
+    def Delete(self, nomTable, conditions):
+        self.cur.execute(f"""DELETE FROM {nomTable} WHERE {conditions}
+                         """)
+        self.con.commit()
+
+    def Select(self, colonnes, nomTable, conditions):
+        self.cur.execute(f"""SELECT {colonnes} FROM {nomTable} WHERE {conditions}
+                         """)
         self.con.commit()
 
     def CloseDB(self):
