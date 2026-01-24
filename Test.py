@@ -1,5 +1,3 @@
-#   Ce fichier sert à peupler la base de donnée Aerodrome.db
-
 import random
 import datetime
 from CRUD import RequeteSQL
@@ -35,27 +33,24 @@ def main():
     db = RequeteSQL("Aerodrome.db")
 
     # NOTE : Si tu veux vider la base avant de remplir, tu peux décommenter les lignes Delete
-    # Attention à l'ordre à cause des clés étrangères !
     # db.Delete("Remplir", "1=1") # 1=1 est une astuce pour dire "Toujours vrai" -> Tout supprimer
     # ...
 
     print("--- Création des données statiques ---")
     
-    # 1. Carburants (Fixe selon ta demande)
-    # On utilise try/except au cas où ils existent déjà pour ne pas bloquer le script
+    # 1. Carburants
     try:
         for c in CARBURANTS:
             # Type_carburant, prix_litre, Quantite_max
             db.Insert("Carburant", [c[0], c[1], c[2]])
     except Exception:
-        pass # On ignore si ça existe déjà
+        pass 
 
     # 2. Infrastructures (Parking & Hangar)
     nb_parkings = 30
     print(f"Création de {nb_parkings} places de parking...")
     for i in range(1, nb_parkings + 1):
         try:
-            # id, taille, prix (char)
             prix_code = 'A' if i < 10 else 'B'
             db.Insert("Parking", [i, "Standard", prix_code])
         except: pass
@@ -64,51 +59,44 @@ def main():
     print(f"Création de {nb_hangars} hangars...")
     for i in range(1, nb_hangars + 1):
         try:
-            # id, taille, prix_j, prix_s, prix_m
             db.Insert("Hangar", [i, "Large", 50, 300, 1000])
         except: pass
 
-    # 3. Création des Personnes (Agents et Pilotes) et leurs Comptes
-    print("--- Création des Agents et Pilotes et les Gestionnaires d'Aerodrome---")
+    # 3. Création des Humains et Comptes
+    print("--- Création du Gestionnaire, Agents et Pilotes ---")
     
-    pilote_ids = []
-    agent_ids = []
-    gest_ids = []
-    # Créons 5 Gestionnaires
-    for i in range(1, 6):
-        identifiant = f"Gestionnaire{i}"
-        mdp = "admin@{i}"
-        try:
-            db.Insert("Compte", [identifiant, mdp])
-            # id_agent, Nom, Prenom, Adresse, Tel, identifiant
-            nom = random.choice(NOMS)
-            prenom = random.choice(PRENOMS)
-            db.Insert("Gestionnaire_Aerodrome", [i, nom, prenom, random.choice(RUES), generer_telephone(), identifiant])
-            gest_ids.append(i)
-        except: 
-            gest_ids.append(i) # S'il existe déjà, on le garde quand même dans la liste
+    # A. Le Gestionnaire (Unique)
+    try:
+        identifiant_gest = "admin"
+        mdp_gest = "superadmin"
+        db.Insert("Compte", [identifiant_gest, mdp_gest])
+        # id_gestionnaire, Nom, Prenom, Adresse, Telephone, identifiant
+        db.Insert("Gestionnaire_Aerodrome", [1, "Directeur", "Grand", "Tour de Contrôle", generer_telephone(), identifiant_gest])
+        print("Gestionnaire créé.")
+    except:
+        print("Le gestionnaire existe déjà.")
 
-    # Créons 5 agents
+    # B. Les Agents
+    agent_ids = []
     for i in range(1, 6):
         identifiant = f"agent{i}"
-        mdp = "admin@{i}"
+        mdp = "admin123"
         try:
             db.Insert("Compte", [identifiant, mdp])
-            # id_agent, Nom, Prenom, Adresse, Tel, identifiant
             nom = random.choice(NOMS)
             prenom = random.choice(PRENOMS)
             db.Insert("AgentExploitation", [i, nom, prenom, random.choice(RUES), generer_telephone(), identifiant])
             agent_ids.append(i)
         except: 
-            agent_ids.append(i) # S'il existe déjà, on le garde quand même dans la liste
+            agent_ids.append(i)
 
-    # Créons 30 Pilotes
+    # C. Les Pilotes
+    pilote_ids = []
     for i in range(1, 31):
         identifiant = f"pilote{i}"
-        mdp = "voler@{i}"
+        mdp = "voler123"
         try:
             db.Insert("Compte", [identifiant, mdp])
-            # id_pilote, Nom, Prenom, Adresse, Tel, identifiant
             nom = random.choice(NOMS)
             prenom = random.choice(PRENOMS)
             db.Insert("Pilote", [i, nom, prenom, random.choice(RUES), generer_telephone(), identifiant])
@@ -120,35 +108,32 @@ def main():
     print("--- Création des Avions ---")
     avion_ids = []
     for i in range(1, 41): # 40 avions
-        # id_avion, TypeAvion, Capacite, id_pilote
         try:
             modele = random.choice(TYPES_AVIONS)
-            capa = 200 if "Da40" in modele else 140 # Un peu de logique
+            capa = 200 if "Da40" in modele else 140 
             proprio = random.choice(pilote_ids)
             db.Insert("Avion", [i, modele, capa, proprio])
             avion_ids.append(i)
         except:
             avion_ids.append(i)
 
-    # 5. Génération massive : Vols, Factures, Réservations
-    # C'est ici qu'on va générer le volume pour atteindre ~1000 données cumulées
+    # 5. Génération massive
     print("--- Génération des Réservations et données liées ---")
     
-    nb_reservations = 250 # 250 * (1 Vol + 1 Facture + 1 Resa) = 750 entrées + les carburants
+    nb_reservations = 250 
     
     for i in range(1, nb_reservations + 1):
         try:
             # A. Créer un Vol
             id_vol = i
             h_dep = generer_heure()
-            h_arr = generer_heure() # Simplification : atterrissage le même jour, heure random
+            h_arr = generer_heure() 
             db.Insert("Vol", [id_vol, h_dep, h_arr])
 
             # B. Créer une Facture
             id_facture = i
             recette = random.randint(100, 500)
             agent_responsable = random.choice(agent_ids)
-            # id, r_jour, r_mois, r_annee, total, id_agent
             db.Insert("Facture", [id_facture, recette, recette*30, recette*365, recette, agent_responsable])
 
             # C. Créer la Réservation
@@ -158,23 +143,19 @@ def main():
             date_resa = generer_date_future()
             etat = random.choice(["Confirmée", "En attente", "Terminée"])
             
-            # id_reservation, Etat, Date, Dispo, id_vol, id_avion, id_parking, id_facture
             db.Insert("Reservation", [id_resa, etat, date_resa, "Non", id_vol, id_avion, id_parking, id_facture])
 
-            # D. Parfois, remplir du carburant (1 fois sur 2)
+            # D. Remplir du carburant (1 fois sur 2)
             if random.random() > 0.5:
-                type_carb = "AVGAS 100LL" # Majorité des petits avions
-                if i % 10 == 0: type_carb = "JET A1" # Rarement du Jet
+                type_carb = "AVGAS 100LL" 
+                if i % 10 == 0: type_carb = "JET A1"
                 quantite = random.randint(20, 100)
-                # id_reservation, Quantite, Type_carburant
                 db.Insert("Remplir", [id_resa, quantite, type_carb])
 
         except Exception as e:
-            # En cas de doublon (si tu relances le script sans vider), on ignore
-            # print(f"Erreur sur l'itération {i}: {e}")
             pass
 
-    print("Terminé ! La base de données a été peuplée.")
+    print("Terminé ! La base de données a été peuplée (y compris le Gestionnaire).")
     db.CloseDB()
 
 if __name__ == "__main__":
