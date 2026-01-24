@@ -69,15 +69,29 @@ def main():
         except: pass
 
     # 3. Création des Personnes (Agents et Pilotes) et leurs Comptes
-    print("--- Création des Agents et Pilotes ---")
+    print("--- Création des Agents et Pilotes et les Gestionnaires d'Aerodrome---")
     
     pilote_ids = []
     agent_ids = []
+    gest_ids = []
+    # Créons 5 Gestionnaires
+    for i in range(1, 6):
+        identifiant = f"Gestionnaire{i}"
+        mdp = "admin@{i}"
+        try:
+            db.Insert("Compte", [identifiant, mdp])
+            # id_agent, Nom, Prenom, Adresse, Tel, identifiant
+            nom = random.choice(NOMS)
+            prenom = random.choice(PRENOMS)
+            db.Insert("Gestionnaire_Aerodrome", [i, nom, prenom, random.choice(RUES), generer_telephone(), identifiant])
+            gest_ids.append(i)
+        except: 
+            gest_ids.append(i) # S'il existe déjà, on le garde quand même dans la liste
 
     # Créons 5 agents
     for i in range(1, 6):
         identifiant = f"agent{i}"
-        mdp = "admin123"
+        mdp = "admin@{i}"
         try:
             db.Insert("Compte", [identifiant, mdp])
             # id_agent, Nom, Prenom, Adresse, Tel, identifiant
@@ -91,7 +105,7 @@ def main():
     # Créons 30 Pilotes
     for i in range(1, 31):
         identifiant = f"pilote{i}"
-        mdp = "voler123"
+        mdp = "voler@{i}"
         try:
             db.Insert("Compte", [identifiant, mdp])
             # id_pilote, Nom, Prenom, Adresse, Tel, identifiant
