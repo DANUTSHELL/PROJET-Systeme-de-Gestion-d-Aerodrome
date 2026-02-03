@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Literal
 from CRUD import RequeteSQL
 from datetime import datetime
 
@@ -47,7 +47,7 @@ class DemandeCreneauModel(BaseModel):
 class AjoutServiceCarburant(BaseModel):
     id_reservation: int
     quantite: float
-    type_carburant: str = "AVGAS 100LL"
+    type_carburant: Literal["AVGAS 100LL", "JET A1"]
 
 class AjoutServiceHangar(BaseModel):
     id_reservation: int
