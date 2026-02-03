@@ -8,15 +8,12 @@ from CRUD import RequeteSQL
 # ==========================================
 app = FastAPI(title="Gestion Aérodrome", version="Final")
 
-# IMPORTANT : Assure-toi que ton fichier CRUD.py contient bien "check_same_thread=False"
-# dans la connexion sqlite3, sinon FastAPI peut bloquer.
 db = RequeteSQL("Aerodrome.db")
 
 # ==========================================
 # 2. MODÈLES DE DONNÉES (Pydantic)
 # ==========================================
 
-# Note : id_pilote est Optional car c'est la BDD qui le crée (Auto-increment)
 class PiloteModel(BaseModel):
     id_pilote: Optional[int] = None 
     Nom: str
@@ -57,6 +54,10 @@ class DemandeCreneauModel(BaseModel):
 def read_root():
     return {"Status": "Online", "Message": "API Aérodrome prête."}
 
+# --- IDENTIFICATION ---
+
+
+
 # --- GESTION PILOTES ---
 
 @app.get("/pilotes", response_model=List[dict])
@@ -64,7 +65,6 @@ def get_all_pilotes():
     """Voir la liste de tous les pilotes."""
     try:
         raw = db.Select("Pilote")
-        # Conversion du tuple BDD vers dictionnaire JSON
         return [{"id_pilote": r[0], "Nom": r[1], "Prenom": r[2], "Tel": r[4]} for r in raw]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -73,14 +73,11 @@ def get_all_pilotes():
 def create_pilote(pilote: PiloteModel):
     """Créer un nouveau pilote (et son compte)."""
     try:
-        # 1. Création du Compte
         db.Insert("Compte", [pilote.identifiant, pilote.mot_de_passe])
         
-        # 2. Création du Pilote (On envoie None pour l'ID, la BDD gère)
         valeurs = [None, pilote.Nom, pilote.Prenom, pilote.Adresse, pilote.Telephone, pilote.identifiant]
         db.Insert("Pilote", valeurs)
         
-        # Astuce : On récupère l'ID généré par SQLite
         new_id = db.cur.lastrowid
         return {"message": "Pilote créé avec succès", "id_genere": new_id}
     except Exception as e:
@@ -90,23 +87,19 @@ def create_pilote(pilote: PiloteModel):
 def delete_pilote(id_pilote: int, requester_role: str = Query(...), requester_id: int = Query(...)):
     """Supprimer un pilote (Agent = Tout, Pilote = Soi-même)."""
     
-    # --- VÉRIFICATION MANUELLE (Plus simple que Regex) ---
     if requester_role == "Pilote":
         if requester_id != id_pilote:
             raise HTTPException(status_code=403, detail="Vous ne pouvez pas supprimer un autre pilote.")
     elif requester_role != "Agent":
         raise HTTPException(status_code=401, detail="Rôle inconnu (Doit être 'Agent' ou 'Pilote').")
-    # -----------------------------------------------------
 
     try:
-        # On cherche le pilote pour trouver son compte lié
         data = db.Select("Pilote", f"id_pilote = {id_pilote}")
         if not data:
             raise HTTPException(status_code=404, detail="Pilote introuvable.")
         
-        identifiant_compte = data[0][5] # Colonne 5 = identifiant
+        identifiant_compte = data[0][5]
 
-        # Suppression
         db.Delete("Pilote", "id_pilote", id_pilote)
         db.Delete("Compte", "identifiant", identifiant_compte)
         
@@ -138,17 +131,12 @@ def demander_creneau(demande: DemandeCreneauModel):
     Cela crée automatiquement : Vol + Facture (vide) + Réservation.
     """
     try:
-        # 1. Créer le Vol (ID auto)
         db.Insert("Vol", [None, demande.heure_depart, demande.heure_arrivee])
         id_vol = db.cur.lastrowid
 
-        # 2. Créer la Facture vide (ID auto)
-        # (id, r_jour, r_mois, r_annee, total, id_agent)
-        # On met '1' comme id_agent par défaut en attendant qu'un agent traite le dossier
         db.Insert("Facture", [None, 0, 0, 0, 0, 1]) 
         id_facture = db.cur.lastrowid
 
-        # 3. Créer la Réservation
         db.Insert("Reservation", [
             None, 
             "En attente", 
@@ -168,12 +156,10 @@ def demander_creneau(demande: DemandeCreneauModel):
 def voir_reservations(requester_role: str = Query(...)):
     """L'agent voit toutes les réservations."""
     
-    # Vérification simple
     if requester_role != "Agent":
         raise HTTPException(status_code=403, detail="Accès réservé aux Agents.")
 
     raw = db.Select("Reservation")
-    # On formate joliment pour l'API
     resultat = []
     for r in raw:
         resultat.append({
@@ -196,10 +182,8 @@ def decision_agent(id_resa: int, decision: str, requester_role: str = Query(...)
         raise HTTPException(status_code=400, detail="Décision invalide (choisir 'Confirmée' ou 'Refusée').")
 
     try:
-        # Mise à jour de l'état
         db.Update("Reservation", "Etat", decision, f"id_reservation = {id_resa}")
         
-        # Mise à jour de la dispo
         dispo = "Oui" if decision == "Confirmée" else "Non"
         db.Update("Reservation", "Dispo", dispo, f"id_reservation = {id_resa}")
         
@@ -212,11 +196,9 @@ def decision_agent(id_resa: int, decision: str, requester_role: str = Query(...)
 @app.post("/messages")
 def envoyer_message(msg: MessageModel):
     try:
-        # Essai d'insertion
         try:
             db.Insert("Message", [msg.id_agent, msg.id_pilote, msg.Texte])
         except:
-            # Si ça plante, c'est que la conversation existe déjà -> Update
             db.Update("Message", "Texte", f"'{msg.Texte}'", f"id_agent={msg.id_agent} AND id_pilote={msg.id_pilote}")
         
         return {"message": "Envoyé"}
