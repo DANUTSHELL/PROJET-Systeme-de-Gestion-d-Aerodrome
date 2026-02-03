@@ -1,12 +1,17 @@
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from CRUD import RequeteSQL
+from datetime import datetime
 
 # ==========================================
 # 1. INITIALISATION
 # ==========================================
-app = FastAPI(title="Gestion Aérodrome", version="Final")
+app = FastAPI(
+    title="Système de Gestion d'Aérodrome",
+    description="API pour Agent d'Exploitation et Gestionnaire",
+    version="Final-RoleBased"
+)
 
 db = RequeteSQL("Aerodrome.db")
 
@@ -14,6 +19,7 @@ db = RequeteSQL("Aerodrome.db")
 # 2. MODÈLES DE DONNÉES (Pydantic)
 # ==========================================
 
+# --- Modèles de base ---
 class PiloteModel(BaseModel):
     id_pilote: Optional[int] = None 
     Nom: str
@@ -23,20 +29,11 @@ class PiloteModel(BaseModel):
     identifiant: str
     mot_de_passe: str 
 
-class UpdatePiloteModel(BaseModel):
-    Adresse: str
-    Telephone: str
-
 class AvionModel(BaseModel):
     id_avion: Optional[int] = None
     TypeAvion: str
     Capacite_carburant: int
     id_pilote: int
-
-class MessageModel(BaseModel):
-    id_agent: int
-    id_pilote: int
-    Texte: str
 
 class DemandeCreneauModel(BaseModel):
     id_pilote: int
@@ -46,166 +43,296 @@ class DemandeCreneauModel(BaseModel):
     heure_arrivee: str  
     id_parking_souhaite: int = 1
 
+# --- Modèles pour l'Agent ---
+class AjoutServiceCarburant(BaseModel):
+    id_reservation: int
+    quantite: float
+    type_carburant: str = "AVGAS 100LL"
+
+class AjoutServiceHangar(BaseModel):
+    id_reservation: int
+    id_hangar: int
+
+class ValidationCreneau(BaseModel):
+    decision: str  # "Confirmée", "Autorisée", "Achevée", "Annulée"
+
+class UpdatePrixCarburant(BaseModel):
+    type_carburant: str
+    nouveau_prix: float
+
+class NouveauHangar(BaseModel):
+    Taille: str
+    Prix_jour: float
+    Prix_semaine: float
+    Prix_mois: float
+
 # ==========================================
-# 3. ROUTES (ENDPOINTS)
+# 3. FONCTIONS UTILITAIRES
+# ==========================================
+
+def verifier_role(role_attendu: str, role_recu: str):
+    """Vérifie si l'utilisateur a le droit d'accéder."""
+    if role_recu != role_attendu:
+        raise HTTPException(status_code=403, detail=f"Accès refusé. Réservé au rôle : {role_attendu}")
+
+# ==========================================
+# 4. PARTIE COMMUNE (LOGIN / PILOTES)
 # ==========================================
 
 @app.get("/")
 def read_root():
-    return {"Status": "Online", "Message": "API Aérodrome prête."}
+    return {"System": "Online", "Roles": ["Pilote", "Agent", "Gestionnaire"]}
 
-# --- IDENTIFICATION ---
-
-
-
-# --- GESTION PILOTES ---
-
-@app.get("/pilotes", response_model=List[dict])
-def get_all_pilotes():
-    """Voir la liste de tous les pilotes."""
+@app.post("/pilotes/inscription")
+def inscription_pilote(pilote: PiloteModel):
+    """Permet à un pilote de s'inscrire."""
     try:
-        raw = db.Select("Pilote")
-        return [{"id_pilote": r[0], "Nom": r[1], "Prenom": r[2], "Tel": r[4]} for r in raw]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/pilotes")
-def create_pilote(pilote: PiloteModel):
-    """Créer un nouveau pilote (et son compte)."""
-    try:
-        db.Insert("Compte", [pilote.identifiant, pilote.mot_de_passe])
-        
+        db.Insert("Compte", [pilote.identifiant, pilote.mot_de_passe, "Pilote"])
         valeurs = [None, pilote.Nom, pilote.Prenom, pilote.Adresse, pilote.Telephone, pilote.identifiant]
         db.Insert("Pilote", valeurs)
-        
-        new_id = db.cur.lastrowid
-        return {"message": "Pilote créé avec succès", "id_genere": new_id}
+        return {"message": "Inscription réussie", "id_genere": db.cur.lastrowid}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur (Doublon ou données invalides) : {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
-@app.delete("/pilotes/{id_pilote}")
-def delete_pilote(id_pilote: int, requester_role: str = Query(...), requester_id: int = Query(...)):
-    """Supprimer un pilote (Agent = Tout, Pilote = Soi-même)."""
-    
-    if requester_role == "Pilote":
-        if requester_id != id_pilote:
-            raise HTTPException(status_code=403, detail="Vous ne pouvez pas supprimer un autre pilote.")
-    elif requester_role != "Agent":
-        raise HTTPException(status_code=401, detail="Rôle inconnu (Doit être 'Agent' ou 'Pilote').")
+# ==========================================
+# 5. ESPACE AGENT D'EXPLOITATION
+# ==========================================
 
+TAG_AGENT = "Agent d'Exploitation"
+
+# --- A. GESTION DES PILOTES ---
+
+@app.get("/agent/pilotes", tags=[TAG_AGENT])
+def lister_pilotes(role: str = Query(..., description="Doit être 'Agent'")):
+    verifier_role("Agent", role)
+    raw = db.Select("Pilote")
+    return [{"id": r[0], "Nom": r[1], "Prenom": r[2], "Tel": r[4]} for r in raw]
+
+@app.delete("/agent/pilotes/{id_pilote}", tags=[TAG_AGENT])
+def supprimer_pilote(id_pilote: int, role: str = Query(..., description="Doit être 'Agent'")):
+    verifier_role("Agent", role)
     try:
-        data = db.Select("Pilote", f"id_pilote = {id_pilote}")
-        if not data:
-            raise HTTPException(status_code=404, detail="Pilote introuvable.")
+        # On récupère le compte pour le supprimer aussi
+        p = db.Select("Pilote", f"id_pilote={id_pilote}")
+        if not p: raise HTTPException(404, "Pilote introuvable")
+        identifiant = p[0][5]
         
-        identifiant_compte = data[0][5]
-
         db.Delete("Pilote", "id_pilote", id_pilote)
-        db.Delete("Compte", "identifiant", identifiant_compte)
-        
-        return {"message": f"Pilote {id_pilote} supprimé."}
+        db.Delete("Compte", "identifiant", identifiant)
+        return {"message": "Pilote supprimé"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(400, str(e))
 
-# --- GESTION AVIONS ---
+# --- B. GESTION DES CRÉNEAUX (DISPONIBILITÉ) ---
 
-@app.post("/avions")
-def create_avion(avion: AvionModel):
+@app.get("/agent/creneaux", tags=[TAG_AGENT])
+def voir_tous_creneaux(role: str = Query(..., description="Doit être 'Agent'")):
+    verifier_role("Agent", role)
+    raw = db.Select("Reservation")
+    return [{"id": r[0], "Etat": r[1], "Date": r[2], "Dispo": r[3], "Avion": r[5]} for r in raw]
+
+@app.put("/agent/creneaux/{id_resa}/statut", tags=[TAG_AGENT])
+def modifier_statut_creneau(id_resa: int, validation: ValidationCreneau, role: str = Query(..., description="Doit être 'Agent'")):
+    """
+    1. Ajouter, modifier ou annuler un créneau.
+    États possibles : 'Confirmée', 'Autorisée', 'Achevée', 'Annulée'.
+    """
+    verifier_role("Agent", role)
     try:
-        db.Insert("Avion", [None, avion.TypeAvion, avion.Capacite_carburant, avion.id_pilote])
-        return {"message": "Avion ajouté", "id_avion": db.cur.lastrowid}
+        db.Update("Reservation", "Etat", validation.decision, f"id_reservation={id_resa}")
+        dispo = "Oui" if validation.decision != "Annulée" else "Non"
+        db.Update("Reservation", "Dispo", dispo, f"id_reservation={id_resa}")
+        return {"message": f"Créneau {id_resa} passé à {validation.decision}"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(400, str(e))
 
-@app.get("/mes_avions")
-def get_my_avions(id_pilote: int = Query(...)):
-    raw = db.Select("Avion", f"id_pilote = {id_pilote}")
-    return [{"id_avion": r[0], "Modele": r[1], "Capacite": r[2]} for r in raw]
+# --- C. GESTION DES SERVICES AU SOL (AFFECTATION RESSOURCES) ---
 
-# --- GESTION DES CRÉNEAUX (RÉSERVATIONS) ---
+@app.post("/agent/services/carburant", tags=[TAG_AGENT])
+def ajouter_service_carburant(service: AjoutServiceCarburant, role: str = Query(..., description="Doit être 'Agent'")):
+    """2. Affecter les ressources (Carburant) à une réservation."""
+    verifier_role("Agent", role)
+    try:
+        db.Insert("Remplir", [service.id_reservation, service.quantite, service.type_carburant])
+        return {"message": f"{service.quantite}L de {service.type_carburant} ajoutés."}
+    except Exception as e:
+        raise HTTPException(400, "Erreur (Déjà ravitaillé ?): " + str(e))
 
-@app.post("/demande_creneau")
-def demander_creneau(demande: DemandeCreneauModel):
+@app.post("/agent/services/hangar", tags=[TAG_AGENT])
+def affecter_hangar(service: AjoutServiceHangar, role: str = Query(..., description="Doit être 'Agent'")):
+    """2. Affecter les ressources (Hangar) à une réservation."""
+    verifier_role("Agent", role)
+    try:
+        db.Insert("Emplacement", [None, service.id_reservation, service.id_hangar])
+        return {"message": f"Hangar {service.id_hangar} réservé pour la réservation {service.id_reservation}"}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+# --- D. GESTION DES FACTURES ---
+
+@app.post("/agent/factures/{id_reservation}/generer", tags=[TAG_AGENT])
+def generer_facture(id_reservation: int, id_agent: int, role: str = Query(..., description="Doit être 'Agent'")):
     """
-    Le pilote demande un créneau.
-    Cela crée automatiquement : Vol + Facture (vide) + Réservation.
+    3. Calculer et générer la facture.
+    Logique : Prix Parking + (Prix Carburant * Qté) + Prix Hangar
     """
+    verifier_role("Agent", role)
+    try:
+        total = 0.0
+        
+        resa = db.Select("Reservation", f"id_reservation={id_reservation}")
+        if not resa: raise HTTPException(404, "Réservation introuvable")
+        id_parking = resa[0][6]
+        id_facture = resa[0][7]
+        
+        park = db.Select("Parking", f"id_parking={id_parking}")
+        if park:
+            code_prix = park[0][2]
+            total += 50.0 if code_prix == 'A' else 20.0
+            
+        # 3. Coût Carburant
+        remplir = db.Select("Remplir", f"id_reservation={id_reservation}")
+        if remplir:
+            qte = remplir[0][1]
+            type_c = remplir[0][2]
+            carb_info = db.Select("Carburant", f"Type_carburant='{type_c}'")
+            if carb_info:
+                prix_L = carb_info[0][1]
+                total += (qte * prix_L)
+
+        db.Update("Facture", "total", total, f"id_facture={id_facture}")
+        db.Update("Facture", "id_agent", id_agent, f"id_facture={id_facture}")
+        
+        db.Update("Facture", "r_jour", total, f"id_facture={id_facture}")
+        db.Update("Facture", "r_mois", total, f"id_facture={id_facture}")
+        db.Update("Facture", "r_annee", total, f"id_facture={id_facture}")
+
+        return {"message": "Facture générée", "Total_Calculé": total, "id_facture": id_facture}
+
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+# ==========================================
+# 6. ESPACE GESTIONNAIRE D'AÉRODROME
+# ==========================================
+
+TAG_GEST = "Gestionnaire d'Aérodrome"
+
+# --- A. VISUALISER LE FLUX DES MOUVEMENTS ---
+
+@app.get("/gestionnaire/flux", tags=[TAG_GEST])
+def visualiser_flux(role: str = Query(..., description="Doit être 'Gestionnaire'")):
+    """
+    1. Visualiser le flux des mouvements par état.
+    """
+    verifier_role("Gestionnaire", role)
+    try:
+        all_resas = db.Select("Reservation")
+        stats = {
+            "En attente (Demandé)": 0,
+            "Confirmée": 0,
+            "Autorisée": 0,
+            "Achevée": 0,
+            "Annulée": 0,
+            "Total": 0
+        }
+        
+        for r in all_resas:
+            etat = r[1]
+            if etat in stats:
+                stats[etat] += 1
+            else:
+                stats[etat] = 1
+            stats["Total"] += 1
+            
+        return stats
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+# --- B. GÉRER LES INFRASTRUCTURES ---
+
+@app.get("/gestionnaire/infrastructures", tags=[TAG_GEST])
+def etat_infrastructures(role: str = Query(..., description="Doit être 'Gestionnaire'")):
+    """Voir l'état des stocks et places."""
+    verifier_role("Gestionnaire", role)
+    carburants = db.Select("Carburant")
+    hangars = db.Select("Hangar")
+    parkings = db.Select("Parking")
+    
+    return {
+        "Carburants": [{"Type": c[0], "Prix": c[1], "Stock_Max": c[2]} for c in carburants],
+        "Hangars_Dispo": len(hangars),
+        "Parkings_Dispo": len(parkings)
+    }
+
+@app.put("/gestionnaire/infrastructure/carburant", tags=[TAG_GEST])
+def changer_prix_carburant(modif: UpdatePrixCarburant, role: str = Query(..., description="Doit être 'Gestionnaire'")):
+    """2. Gérer l'infrastructure : Modifier prix carburant."""
+    verifier_role("Gestionnaire", role)
+    try:
+        db.Update("Carburant", "prix_litre", modif.nouveau_prix, f"Type_carburant='{modif.type_carburant}'")
+        return {"message": "Prix mis à jour."}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+@app.post("/gestionnaire/infrastructure/hangar", tags=[TAG_GEST])
+def ajouter_hangar(h: NouveauHangar, role: str = Query(..., description="Doit être 'Gestionnaire'")):
+    """2. Gérer l'infrastructure : Ajouter un nouveau hangar."""
+    verifier_role("Gestionnaire", role)
+    try:
+        db.Insert("Hangar", [None, h.Taille, h.Prix_jour, h.Prix_semaine, h.Prix_mois])
+        return {"message": "Nouveau hangar construit."}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+# --- C. SUIVI DES RECETTES & D. RAPPORT ---
+
+@app.get("/gestionnaire/rapport_financier", tags=[TAG_GEST])
+def generer_rapport(role: str = Query(..., description="Doit être 'Gestionnaire'")):
+    """
+    3. Suivi des recettes journalières, mensuelles, annuelles.
+    4. Générer un rapport complet.
+    """
+    verifier_role("Gestionnaire", role)
+    try:
+        factures = db.Select("Facture")
+        
+        recette_totale = 0
+        nb_factures = 0
+        
+        for f in factures:
+            recette_totale += f[4] # Total
+            nb_factures += 1
+            
+        rapport = {
+            "Date_Generation": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "Volume_Ventes": nb_factures,
+            "Recettes_Globales": recette_totale,
+            "Analyse_Temporelle": {
+                "Recette_Journaliere_Estimee": recette_totale / 365, # Moyenne simple
+                "Recette_Mensuelle_Estimee": recette_totale / 12,
+                "Recette_Annuelle_Reelle": recette_totale
+            },
+            "Conclusion": "Situation financière stable." if recette_totale > 0 else "Aucune recette enregistrée."
+        }
+        return rapport
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+# ==========================================
+# 7. ESPACE PILOTE
+# ==========================================
+
+@app.post("/pilote/demande_creneau", tags=["Pilote"])
+def demander_creneau_pilote(demande: DemandeCreneauModel):
     try:
         db.Insert("Vol", [None, demande.heure_depart, demande.heure_arrivee])
         id_vol = db.cur.lastrowid
-
         db.Insert("Facture", [None, 0, 0, 0, 0, 1]) 
-        id_facture = db.cur.lastrowid
-
-        db.Insert("Reservation", [
-            None, 
-            "En attente", 
-            demande.date_souhaitee, 
-            "Non", 
-            id_vol, 
-            demande.id_avion, 
-            demande.id_parking_souhaite, 
-            id_facture
-        ])
-        
-        return {"message": "Demande envoyée", "id_reservation": db.cur.lastrowid}
+        id_fac = db.cur.lastrowid
+        db.Insert("Reservation", [None, "Demandé", demande.date_souhaitee, "Non", id_vol, demande.id_avion, demande.id_parking_souhaite, id_fac])
+        return {"message": "Demande envoyée", "Etat": "Demandé"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur technique : {str(e)}")
-
-@app.get("/agent/reservations")
-def voir_reservations(requester_role: str = Query(...)):
-    """L'agent voit toutes les réservations."""
-    
-    if requester_role != "Agent":
-        raise HTTPException(status_code=403, detail="Accès réservé aux Agents.")
-
-    raw = db.Select("Reservation")
-    resultat = []
-    for r in raw:
-        resultat.append({
-            "id_reservation": r[0],
-            "Etat": r[1],
-            "Date": r[2],
-            "Disponibilite": r[3],
-            "id_avion": r[5]
-        })
-    return resultat
-
-@app.put("/agent/reservations/{id_resa}/decision")
-def decision_agent(id_resa: int, decision: str, requester_role: str = Query(...)):
-    """Valider ou Refuser une réservation."""
-    
-    if requester_role != "Agent":
-        raise HTTPException(status_code=403, detail="Accès réservé aux Agents.")
-    
-    if decision not in ["Confirmée", "Refusée"]:
-        raise HTTPException(status_code=400, detail="Décision invalide (choisir 'Confirmée' ou 'Refusée').")
-
-    try:
-        db.Update("Reservation", "Etat", decision, f"id_reservation = {id_resa}")
-        
-        dispo = "Oui" if decision == "Confirmée" else "Non"
-        db.Update("Reservation", "Dispo", dispo, f"id_reservation = {id_resa}")
-        
-        return {"message": f"Réservation {id_resa} passée à {decision}"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-# --- MESSAGERIE ---
-
-@app.post("/messages")
-def envoyer_message(msg: MessageModel):
-    try:
-        try:
-            db.Insert("Message", [msg.id_agent, msg.id_pilote, msg.Texte])
-        except:
-            db.Update("Message", "Texte", f"'{msg.Texte}'", f"id_agent={msg.id_agent} AND id_pilote={msg.id_pilote}")
-        
-        return {"message": "Envoyé"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/messages")
-def lire_messages(id_pilote: int = Query(...)):
-    raw = db.Select("Message", f"id_pilote = {id_pilote}")
-    return [{"Agent_ID": r[0], "Message": r[2]} for r in raw]
+        raise HTTPException(400, str(e))
