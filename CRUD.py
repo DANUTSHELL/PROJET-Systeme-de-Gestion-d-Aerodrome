@@ -1,44 +1,40 @@
 import sqlite3
 
-#   Class RequeteSQL qui regroupe toutes les requêtes SQL
-
-class RequeteSQL :
+class RequeteSQL:
     def __init__(self, baseDB):
-        self.con = sqlite3.connect(baseDB)
+        self.con = sqlite3.connect(baseDB, check_same_thread=False)
         self.cur = self.con.cursor()
 
     def CreateTable(self, nomTable, listeAttributs, typeAttributs, PrimaryKey):
-        attributs_str = ", ".join([f"{attributs} {types}" for attributs, types in zip(listeAttributs, typeAttributs)])
-        self.cur.execute(f"""CREATE TABLE IF NOT EXISTS {nomTable}(
-                         {attributs_str},PRIMARY KEY ({PrimaryKey})
-                         )""")
+        attributs_str = ", ".join([f"{att} {typ}" for att, typ in zip(listeAttributs, typeAttributs)])
+        query = f"CREATE TABLE IF NOT EXISTS {nomTable} ({attributs_str}, PRIMARY KEY ({PrimaryKey}))"
+        self.cur.execute(query)
         self.con.commit()
     
     def Insert(self, nomTable, listeValeurs):
-        Liste_interrogations = ", ".join(["?" for _ in listeValeurs])
-        self.cur.execute(f"""INSERT INTO {nomTable} VALUES(
-                         {Liste_interrogations}
-                         )""", listeValeurs)
+        placeholders = ", ".join(["?" for _ in listeValeurs])
+        query = f"INSERT INTO {nomTable} VALUES ({placeholders})"
+        self.cur.execute(query, listeValeurs)
         self.con.commit()
 
-    def Update(self, nomTable, nouvelle_valeur, conditions):
-        self.cur.execute(f"""UPDATE {nomTable} SET {nouvelle_valeur} WHERE {conditions}
-                         """)
+    def Update(self, nomTable, colonne, valeur, condition):
+        query = f"UPDATE {nomTable} SET {colonne} = ? WHERE {condition}"
+        self.cur.execute(query, (valeur,))
         self.con.commit()
     
-    def Delete(self, nomTable, conditions):
-        self.cur.execute(f"""DELETE FROM {nomTable} WHERE {conditions}
-                         """)
+    def Delete(self, nomTable, colonne_cond, valeur_cond):
+        query = f"DELETE FROM {nomTable} WHERE {colonne_cond} = ?"
+        self.cur.execute(query, (valeur_cond,))
         self.con.commit()
 
-    def Select(self, colonnes, nomTable, conditions = None):
+    def Select(self, nomTable, conditions=None):
         if conditions is None:
-            self.cur.execute(f"""SELECT * FROM {nomTable}""")
+            query = f"SELECT * FROM {nomTable}"
         else:
-            self.cur.execute(f"""SELECT {colonnes} FROM {nomTable} WHERE {conditions}
-                             """)
-        resultats = self.cur.fetchall()
-        return resultats
+            query = f"SELECT * FROM {nomTable} WHERE {conditions}"
+            
+        self.cur.execute(query)
+        return self.cur.fetchall()
 
     def CloseDB(self):
         self.con.close()
