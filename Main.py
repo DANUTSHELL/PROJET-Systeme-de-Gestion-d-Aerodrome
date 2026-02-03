@@ -328,11 +328,48 @@ def generer_rapport(role: str = Query(..., description="Doit être 'Gestionnaire
 @app.post("/pilote/demande_creneau", tags=["Pilote"])
 def demander_creneau_pilote(demande: DemandeCreneauModel):
     try:
+        # --- 1. VÉRIFICATION AUTOMATIQUE DE DISPONIBILITÉ ---
+        
+        condition = f"Date = '{demande.date_souhaitee}' AND id_parking = {demande.id_parking_souhaite} AND Etat != 'Annulée'"
+        conflits = db.Select("Reservation", condition)
+
+        if len(conflits) > 0:
+            etat_auto = "Annulée"
+            dispo_auto = "Non"
+            message_retour = "Demande rejetée automatiquement : Parking indisponible à cette date."
+        else:
+            etat_auto = "Demandé"
+            dispo_auto = "Oui"   
+            message_retour = "Disponibilité OK : Demande envoyée à l'agent."
+
+        # --- 2. CRÉATION DES ENREGISTREMENTS ---
+        
+        # A. Création du Vol
         db.Insert("Vol", [None, demande.heure_depart, demande.heure_arrivee])
         id_vol = db.cur.lastrowid
+        
+        # B. Création de la Facture
         db.Insert("Facture", [None, 0, 0, 0, 0, 1]) 
         id_fac = db.cur.lastrowid
-        db.Insert("Reservation", [None, "Demandé", demande.date_souhaitee, "Non", id_vol, demande.id_avion, demande.id_parking_souhaite, id_fac])
-        return {"message": "Demande envoyée", "Etat": "Demandé"}
+        
+        # C. Création de la Réservation avec l'état CALCULÉ AUTOMATIQUEMENT
+        db.Insert("Reservation", [
+            None, 
+            etat_auto,
+            demande.date_souhaitee, 
+            dispo_auto,
+            id_vol, 
+            demande.id_avion, 
+            demande.id_parking_souhaite, 
+            id_fac
+        ])
+        
+        return {
+            "message": message_retour, 
+            "Etat_Attribué": etat_auto, 
+            "Disponibilite_Systeme": dispo_auto,
+            "id_reservation": db.cur.lastrowid
+        }
+
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(status_code=400, detail=str(e))
