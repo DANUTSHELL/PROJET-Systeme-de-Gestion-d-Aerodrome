@@ -9,8 +9,8 @@ from datetime import datetime
 # ==========================================
 app = FastAPI(
     title="Système de Gestion d'Aérodrome",
-    description="API pour Agent d'Exploitation et Gestionnaire",
-    version="Final-RoleBased"
+    description="API pour Agent d'Exploitation, Gestionnaire et Pilote",
+    version="Final"
 )
 
 db = RequeteSQL("Aerodrome.db")
@@ -56,6 +56,7 @@ class AjoutServiceHangar(BaseModel):
 class ValidationCreneau(BaseModel):
     decision: str  # "Confirmée", "Autorisée", "Achevée", "Annulée"
 
+# --- Modèles pour le Gestionnaire ---
 class UpdatePrixCarburant(BaseModel):
     type_carburant: str
     nouveau_prix: float
@@ -65,6 +66,12 @@ class NouveauHangar(BaseModel):
     Prix_jour: float
     Prix_semaine: float
     Prix_mois: float
+
+# --- Modèles pour la Messagerie ---
+class MessageEnvoi(BaseModel):
+    id_agent: int
+    id_pilote: int
+    texte: str
 
 # ==========================================
 # 3. FONCTIONS UTILITAIRES
@@ -83,7 +90,7 @@ def verifier_role(role_attendu: str, role_recu: str):
 def read_root():
     return {"System": "Online", "Roles": ["Pilote", "Agent", "Gestionnaire"]}
 
-@app.post("/pilotes/inscription")
+@app.post("/pilotes/inscription", tags=["Authentification"])
 def inscription_pilote(pilote: PiloteModel):
     """Permet à un pilote de s'inscrire."""
     try:
@@ -112,7 +119,6 @@ def lister_pilotes(role: str = Query(..., description="Doit être 'Agent'")):
 def supprimer_pilote(id_pilote: int, role: str = Query(..., description="Doit être 'Agent'")):
     verifier_role("Agent", role)
     try:
-        # On récupère le compte pour le supprimer aussi
         p = db.Select("Pilote", f"id_pilote={id_pilote}")
         if not p: raise HTTPException(404, "Pilote introuvable")
         identifiant = p[0][5]
@@ -185,12 +191,13 @@ def generer_facture(id_reservation: int, id_agent: int, role: str = Query(..., d
         id_parking = resa[0][6]
         id_facture = resa[0][7]
         
+        # 1. Coût Parking
         park = db.Select("Parking", f"id_parking={id_parking}")
         if park:
             code_prix = park[0][2]
             total += 50.0 if code_prix == 'A' else 20.0
             
-        # 3. Coût Carburant
+        # 2. Coût Carburant
         remplir = db.Select("Remplir", f"id_reservation={id_reservation}")
         if remplir:
             qte = remplir[0][1]
@@ -199,6 +206,13 @@ def generer_facture(id_reservation: int, id_agent: int, role: str = Query(..., d
             if carb_info:
                 prix_L = carb_info[0][1]
                 total += (qte * prix_L)
+
+        empl = db.Select("Emplacement", f"id_reservation={id_reservation}")
+        if empl:
+            id_hangar = empl[0][2]
+            hangar = db.Select("Hangar", f"id_hangar={id_hangar}")
+            if hangar:
+                total += hangar[0][2]
 
         db.Update("Facture", "total", total, f"id_facture={id_facture}")
         db.Update("Facture", "id_agent", id_agent, f"id_facture={id_facture}")
@@ -209,6 +223,17 @@ def generer_facture(id_reservation: int, id_agent: int, role: str = Query(..., d
 
         return {"message": "Facture générée", "Total_Calculé": total, "id_facture": id_facture}
 
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+# --- E. MESSAGERIE (Réponse Agent) ---
+@app.post("/agent/message/reponse", tags=[TAG_AGENT])
+def repondre_message(msg: MessageEnvoi, role: str = Query(..., description="Doit être 'Agent'")):
+    """L'agent répond au pilote."""
+    verifier_role("Agent", role)
+    try:
+        db.Update("Message", "Texte", f"'{msg.texte}'", f"id_agent={msg.id_agent} AND id_pilote={msg.id_pilote}")
+        return {"message": "Réponse envoyée."}
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -223,28 +248,15 @@ TAG_GEST = "Gestionnaire d'Aérodrome"
 
 @app.get("/gestionnaire/flux", tags=[TAG_GEST])
 def visualiser_flux(role: str = Query(..., description="Doit être 'Gestionnaire'")):
-    """
-    1. Visualiser le flux des mouvements par état.
-    """
+    """1. Visualiser le flux des mouvements par état."""
     verifier_role("Gestionnaire", role)
     try:
         all_resas = db.Select("Reservation")
-        stats = {
-            "En attente (Demandé)": 0,
-            "Confirmée": 0,
-            "Autorisée": 0,
-            "Achevée": 0,
-            "Annulée": 0,
-            "Total": 0
-        }
+        stats = {"Demandé": 0, "Confirmée": 0, "Autorisée": 0, "Achevée": 0, "Annulée": 0}
         
         for r in all_resas:
             etat = r[1]
-            if etat in stats:
-                stats[etat] += 1
-            else:
-                stats[etat] = 1
-            stats["Total"] += 1
+            if etat in stats: stats[etat] += 1
             
         return stats
     except Exception as e:
@@ -262,8 +274,8 @@ def etat_infrastructures(role: str = Query(..., description="Doit être 'Gestion
     
     return {
         "Carburants": [{"Type": c[0], "Prix": c[1], "Stock_Max": c[2]} for c in carburants],
-        "Hangars_Dispo": len(hangars),
-        "Parkings_Dispo": len(parkings)
+        "Hangars_Total": len(hangars),
+        "Parkings_Total": len(parkings)
     }
 
 @app.put("/gestionnaire/infrastructure/carburant", tags=[TAG_GEST])
@@ -290,31 +302,20 @@ def ajouter_hangar(h: NouveauHangar, role: str = Query(..., description="Doit ê
 
 @app.get("/gestionnaire/rapport_financier", tags=[TAG_GEST])
 def generer_rapport(role: str = Query(..., description="Doit être 'Gestionnaire'")):
-    """
-    3. Suivi des recettes journalières, mensuelles, annuelles.
-    4. Générer un rapport complet.
-    """
+    """3. Suivi des recettes et rapport complet."""
     verifier_role("Gestionnaire", role)
     try:
         factures = db.Select("Facture")
+        recette_totale = sum([f[4] for f in factures])
         
-        recette_totale = 0
-        nb_factures = 0
-        
-        for f in factures:
-            recette_totale += f[4] # Total
-            nb_factures += 1
-            
         rapport = {
             "Date_Generation": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Volume_Ventes": nb_factures,
+            "Volume_Ventes": len(factures),
             "Recettes_Globales": recette_totale,
-            "Analyse_Temporelle": {
-                "Recette_Journaliere_Estimee": recette_totale / 365, # Moyenne simple
+            "Analyse": {
                 "Recette_Mensuelle_Estimee": recette_totale / 12,
                 "Recette_Annuelle_Reelle": recette_totale
-            },
-            "Conclusion": "Situation financière stable." if recette_totale > 0 else "Aucune recette enregistrée."
+            }
         }
         return rapport
     except Exception as e:
@@ -325,11 +326,30 @@ def generer_rapport(role: str = Query(..., description="Doit être 'Gestionnaire
 # 7. ESPACE PILOTE
 # ==========================================
 
-@app.post("/pilote/demande_creneau", tags=["Pilote"])
+TAG_PILOTE = "Espace Pilote"
+
+@app.get("/pilote/mes_avions", tags=[TAG_PILOTE])
+def voir_mes_avions(id_pilote: int, role: str = Query(..., description="Doit être 'Pilote'")):
+    """Le pilote consulte ses avions."""
+    verifier_role("Pilote", role)
+    raw = db.Select("Avion", f"id_pilote={id_pilote}")
+    return [{"id": r[0], "Type": r[1], "Capa": r[2]} for r in raw]
+
+@app.post("/pilote/mes_avions", tags=[TAG_PILOTE])
+def ajouter_avion(avion: AvionModel, role: str = Query(..., description="Doit être 'Pilote'")):
+    """Le pilote ajoute un aéronef."""
+    verifier_role("Pilote", role)
+    try:
+        db.Insert("Avion", [None, avion.TypeAvion, avion.Capacite_carburant, avion.id_pilote])
+        return {"message": "Avion ajouté", "id_avion": db.cur.lastrowid}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+@app.post("/pilote/demande_creneau", tags=[TAG_PILOTE])
 def demander_creneau_pilote(demande: DemandeCreneauModel):
+    """Demande de réservation avec vérification automatique de disponibilité."""
     try:
         # --- 1. VÉRIFICATION AUTOMATIQUE DE DISPONIBILITÉ ---
-        
         condition = f"Date = '{demande.date_souhaitee}' AND id_parking = {demande.id_parking_souhaite} AND Etat != 'Annulée'"
         conflits = db.Select("Reservation", condition)
 
@@ -339,87 +359,59 @@ def demander_creneau_pilote(demande: DemandeCreneauModel):
             message_retour = "Demande rejetée automatiquement : Parking indisponible à cette date."
         else:
             etat_auto = "Demandé"
-            dispo_auto = "Oui"   
+            dispo_auto = "Oui"    
             message_retour = "Disponibilité OK : Demande envoyée à l'agent."
 
         # --- 2. CRÉATION DES ENREGISTREMENTS ---
-        
-        # A. Création du Vol
         db.Insert("Vol", [None, demande.heure_depart, demande.heure_arrivee])
         id_vol = db.cur.lastrowid
         
-        # B. Création de la Facture
         db.Insert("Facture", [None, 0, 0, 0, 0, 1]) 
         id_fac = db.cur.lastrowid
         
-        # C. Création de la Réservation avec l'état CALCULÉ AUTOMATIQUEMENT
-        db.Insert("Reservation", [
-            None, 
-            etat_auto,
-            demande.date_souhaitee, 
-            dispo_auto,
-            id_vol, 
-            demande.id_avion, 
-            demande.id_parking_souhaite, 
-            id_fac
-        ])
+        db.Insert("Reservation", [None, etat_auto, demande.date_souhaitee, dispo_auto, id_vol, demande.id_avion, demande.id_parking_souhaite, id_fac])
         
         return {
             "message": message_retour, 
             "Etat_Attribué": etat_auto, 
-            "Disponibilite_Systeme": dispo_auto,
             "id_reservation": db.cur.lastrowid
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/pilote/mes_factures", tags=["Pilote"])
+@app.get("/pilote/mes_factures", tags=[TAG_PILOTE])
 def consulter_mes_factures(id_pilote: int, role: str = Query(..., description="Doit être 'Pilote'")):
-    """
-    Permet au pilote de voir l'historique de ses paiements.
-    Logique : Pilote -> Ses Avions -> Les Réservations de ces avions -> Les Factures liées.
-    """
+    """Voir historique factures."""
     verifier_role("Pilote", role)
-    
     try:
         avions = db.Select("Avion", f"id_pilote={id_pilote}")
-        if not avions:
-            return {"message": "Aucun avion, donc aucune facture."}
-            
         ids_avions = [a[0] for a in avions]
-        
         mes_factures = []
 
         for id_avion in ids_avions:
             resas = db.Select("Reservation", f"id_avion={id_avion}")
-            
             for r in resas:
-                id_facture = r[7]
-                date_vol = r[2]  
-                etat_resa = r[1]
-                
-                fact_data = db.Select("Facture", f"id_facture={id_facture}")
-                
-                if fact_data:
-                    f = fact_data[0]
-                    montant = f[4]
-                    
-                    statut_paiement = "En attente"
-                    if montant > 0:
-                        statut_paiement = "Traitée / À payer"
-                    if etat_resa == "Annulée":
-                        statut_paiement = "Annulée"
-
+                f_data = db.Select("Facture", f"id_facture={r[7]}")
+                if f_data:
                     mes_factures.append({
-                        "Reference_Facture": f[0],
-                        "Date_Concernee": date_vol,
-                        "Montant_Total": montant,
-                        "Avion_Concerne": id_avion,
-                        "Statut": statut_paiement
+                        "Date": r[2],
+                        "Montant": f_data[0][4],
+                        "Statut": r[1]
                     })
-        
         return mes_factures
-
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/pilote/message", tags=[TAG_PILOTE])
+def ecrire_message_pilote(msg: MessageEnvoi, role: str = Query(..., description="Doit être 'Pilote'")):
+    """Le pilote envoie un message."""
+    verifier_role("Pilote", role)
+    try:
+        try:
+            db.Insert("Message", [msg.id_agent, msg.id_pilote, msg.texte])
+        except:
+            db.Update("Message", "Texte", f"'{msg.texte}'", f"id_agent={msg.id_agent} AND id_pilote={msg.id_pilote}")
+        return {"message": "Message envoyé."}
+    except Exception as e:
+        raise HTTPException(400, str(e))
