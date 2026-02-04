@@ -373,3 +373,60 @@ def demander_creneau_pilote(demande: DemandeCreneauModel):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/pilote/mes_factures", tags=["Pilote"])
+def consulter_mes_factures(id_pilote: int, role: str = Query(..., description="Doit être 'Pilote'")):
+    """
+    Permet au pilote de voir l'historique de ses paiements.
+    Logique : Pilote -> Ses Avions -> Les Réservations de ces avions -> Les Factures liées.
+    """
+    verifier_role("Pilote", role)
+    
+    try:
+        # Étape 1 : Trouver tous les avions du pilote
+        # Table Avion : id_avion(0), Type(1), Capa(2), id_pilote(3)
+        avions = db.Select("Avion", f"id_pilote={id_pilote}")
+        if not avions:
+            return {"message": "Aucun avion, donc aucune facture."}
+            
+        ids_avions = [a[0] for a in avions] # Liste des ID d'avions (ex: [1, 5, 12])
+        
+        mes_factures = []
+
+        # Étape 2 : Pour chaque avion, trouver les réservations
+        for id_avion in ids_avions:
+            # Table Reservation : ..., id_avion(5), ..., id_facture(7)
+            resas = db.Select("Reservation", f"id_avion={id_avion}")
+            
+            for r in resas:
+                id_facture = r[7] # Le lien vers la facture
+                date_vol = r[2]   # La date du vol
+                etat_resa = r[1]
+                
+                # Étape 3 : Récupérer les détails de la facture
+                # Table Facture : id(0), r_jour(1), r_mois(2), r_annee(3), total(4), id_agent(5)
+                fact_data = db.Select("Facture", f"id_facture={id_facture}")
+                
+                if fact_data:
+                    f = fact_data[0]
+                    montant = f[4]
+                    
+                    # Petite logique pour l'affichage du statut de paiement
+                    statut_paiement = "En attente"
+                    if montant > 0:
+                        statut_paiement = "Traitée / À payer"
+                    if etat_resa == "Annulée":
+                        statut_paiement = "Annulée"
+
+                    mes_factures.append({
+                        "Reference_Facture": f[0],
+                        "Date_Concernee": date_vol,
+                        "Montant_Total": montant,
+                        "Avion_Concerne": id_avion,
+                        "Statut": statut_paiement
+                    })
+        
+        return mes_factures
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
