@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Literal
+from typing import Optional, Literal
 from CRUD import RequeteSQL
 from datetime import datetime
 
