@@ -146,9 +146,15 @@ def modifier_statut_creneau(id_resa: int, validation: ValidationCreneau, role: s
     verifier_role("Agent", role)
     try:
         db.Update("Reservation", "Etat", validation.decision, f"id_reservation={id_resa}")
-        dispo = "Oui" if validation.decision != "Annulée" else "Non"
+        
+        if validation.decision in ["Annulée", "Achevée"]:
+            dispo = "Non"
+        else:
+            dispo = "Oui"
+            
         db.Update("Reservation", "Dispo", dispo, f"id_reservation={id_resa}")
-        return {"message": f"Créneau {id_resa} passé à {validation.decision}"}
+        
+        return {"message": f"Créneau {id_resa} passé à {validation.decision} (Dispo: {dispo})"}
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -350,7 +356,7 @@ def demander_creneau_pilote(demande: DemandeCreneauModel):
     """Demande de réservation avec vérification automatique de disponibilité."""
     try:
         # --- 1. VÉRIFICATION AUTOMATIQUE DE DISPONIBILITÉ ---
-        condition = f"Date = '{demande.date_souhaitee}' AND id_parking = {demande.id_parking_souhaite} AND Etat != 'Annulée'"
+        condition = f"Date = '{demande.date_souhaitee}' AND id_parking = {demande.id_parking_souhaite} AND Etat != 'Annulée' AND Etat != 'Achevée'"
         conflits = db.Select("Reservation", condition)
 
         if len(conflits) > 0:
