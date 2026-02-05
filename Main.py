@@ -148,9 +148,9 @@ def modifier_statut_creneau(id_resa: int, validation: ValidationCreneau, role: s
         db.Update("Reservation", "Etat", validation.decision, f"id_reservation={id_resa}")
         
         if validation.decision in ["Annulée", "Achevée"]:
-            dispo = "Non"
-        else:
             dispo = "Oui"
+        else:
+            dispo = "Non"
             
         db.Update("Reservation", "Dispo", dispo, f"id_reservation={id_resa}")
         
